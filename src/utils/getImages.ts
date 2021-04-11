@@ -4,9 +4,7 @@ import * as AdmZip from "adm-zip";
 import { Media } from "../types";
 
 export const getImages = async (mediaList: Media[]) => {
-  const zip = new AdmZip();
-
-  const imageList = await Promise.all(
+  return Promise.all(
     mediaList.map(async (media) => {
       console.log(`Processing: ${media.url}`);
 
@@ -16,7 +14,4 @@ export const getImages = async (mediaList: Media[]) => {
       return data;
     })
   );
-
-  imageList.map((data, index) => zip.addFile(`/tmp/${index}.jpg`, data));
-  zip.writeZip("/tmp/images.zip");
 };
