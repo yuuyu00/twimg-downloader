@@ -1,10 +1,12 @@
-import { execSync, exec } from "child_process";
+import { writeFileSync } from "fs";
+import axios from "axios";
 import { Media } from "../types";
 
-export const getMovies = (mediaList: Media[], folderName: string) => {
-  mediaList.forEach((media, index) => {
+export const getMovies = (mediaList: Media[]) => {
+  mediaList.forEach(async (media, index) => {
     console.log(`Processing: ${media.url}`);
 
-    execSync(`curl ${media.url} > dist/${folderName}/mv_${index}.mp4`);
+    const { data } = await axios.get(media.url);
+    writeFileSync(`/tmp/mv_${index}.mp4`, data);
   });
 };

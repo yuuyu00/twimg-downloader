@@ -1,8 +1,10 @@
 // import * as twitter from "twitter-v2";
 import * as Twitter from "twitter";
-import { execSync } from "child_process";
+import * as fs from "fs";
+import * as AdmZip from "adm-zip";
 import { Media } from "./types";
 import { getImages, getMovies } from "./utils";
+import * as S3 from "aws-sdk/clients/s3";
 
 const client = new Twitter({
   consumer_key: "ELcHBKkYF2Ui7wXibvaKg3Yxc",
@@ -10,6 +12,7 @@ const client = new Twitter({
   access_token_key: "1108739604553691137-QWynCEVMxSg5te0FOapICCYPVdg9jE",
   access_token_secret: "uJkectqOGrpV5caTsvmp6h1iU0pX9hBIU5q8X7nQHYBN1",
 });
+const S3_BUCKET_NAME = "twi-image-downloader-contents";
 
 type Tweet = {
   id: number;
@@ -122,8 +125,8 @@ const getMedias = async (
 
   if (tweets.length < 195) {
     return {
-      movieList: [...movieList, ...argMovieList],
-      imageList: [...imageList, ...argImageList],
+      movieList: [...argMovieList, ...movieList],
+      imageList: [...argImageList, ...imageList],
     };
   }
 
@@ -136,15 +139,61 @@ const getMedias = async (
   );
 };
 
-const main = async () => {
-  const userName = process.argv[2];
-  if (!userName) throw new Error("userName is required");
+const getPresignedUrl = async (key: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    s3.getSignedUrl(
+      "getObject",
+      {
+        Bucket: S3_BUCKET_NAME,
+        Key: key,
+        Expires: 30,
+      },
+      (err, url) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(url);
+        }
+      }
+    );
+  });
+};
 
-  execSync(`rm -rf dist/${userName} && mkdir dist/${userName}`);
+const s3 = new S3();
+export const handler = async (event) => {
+  const userName = event.userName;
+  if (!userName) throw new Error("userName is required");
+  const zip = new AdmZip();
 
   const { imageList, movieList } = await getMedias(userName);
   console.log(movieList);
-  getImages(imageList, userName);
-  getMovies(movieList, userName);
+  await getImages(imageList);
+
+  // getMovies(movieList);
+
+  const fileKey = `${userName}_${new Date().toISOString()}.zip`;
+  await s3
+    .putObject({
+      Bucket: S3_BUCKET_NAME,
+      Key: fileKey,
+      Body: fs.readFileSync("/tmp/images.zip"),
+    })
+    .promise();
+  const url = await getPresignedUrl(fileKey);
+
+  return {
+    status: 200,
+    body: { url },
+  };
 };
-main();
+
+// const main = async () => {
+//   const userName = process.argv[2];
+//   if (!userName) throw new Error("userName is required");
+
+//   const { imageList, movieList } = await getMedias(userName);
+//   console.log(imageList);
+//   getImages(imageList);
+// };
+
+// main();

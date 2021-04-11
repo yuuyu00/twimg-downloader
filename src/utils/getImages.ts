@@ -1,10 +1,22 @@
-import { exec } from "child_process";
+import { writeFileSync } from "fs";
+import axios from "axios";
+import * as AdmZip from "adm-zip";
 import { Media } from "../types";
 
-export const getImages = (mediaList: Media[], folderName: string) => {
-  mediaList.forEach((media, index) => {
-    console.log(`Processing: ${media.url}`);
+export const getImages = async (mediaList: Media[]) => {
+  const zip = new AdmZip();
 
-    exec(`curl ${media.url} > dist/${folderName}/img_${index}.jpg`);
-  });
+  const imageList = await Promise.all(
+    mediaList.map(async (media) => {
+      console.log(`Processing: ${media.url}`);
+
+      const { data } = await axios.get(media.url, {
+        responseType: "arraybuffer",
+      });
+      return data;
+    })
+  );
+
+  imageList.map((data, index) => zip.addFile(`/tmp/${index}.jpg`, data));
+  zip.writeZip("/tmp/images.zip");
 };

@@ -12,6 +12,8 @@
     "twitter": "1.7.1",
     "@types/twitter": "1.7.0",
     "axios": "0.21.1",
-    "@types/axios": "0.14.0"
+    "@types/axios": "0.14.0",
+    "adm-zip": "0.5.5",
+    "aws-sdk": "2.884.0"
   }
 }
