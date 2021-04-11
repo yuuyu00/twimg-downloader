@@ -5,6 +5,8 @@ import * as AdmZip from "adm-zip";
 import { Media } from "./types";
 import { getImages, getMovies } from "./utils";
 import * as S3 from "aws-sdk/clients/s3";
+import * as DynamoDB from "aws-sdk/clients/dynamodb";
+import { uuid } from "uuidv4";
 
 const client = new Twitter({
   consumer_key: "ELcHBKkYF2Ui7wXibvaKg3Yxc",
@@ -159,6 +161,7 @@ const getPresignedUrl = async (key: string): Promise<string> => {
 };
 
 const s3 = new S3();
+const db = new DynamoDB({ apiVersion: "2012-08-10" });
 export const handler = async (event) => {
   const userName = event.userName;
   if (!userName) {
@@ -167,6 +170,24 @@ export const handler = async (event) => {
       body: "userName is required.",
     };
   }
+
+  db.putItem(
+    {
+      TableName: "TwImgDownloaderHistory",
+      Item: {
+        id: { S: uuid() },
+        userName: { S: userName },
+        createdAt: { S: new Date().toISOString() },
+      },
+    },
+    (err, data) => {
+      if (err) {
+        console.log("Error", err);
+      } else {
+        console.log("Success", data);
+      }
+    }
+  );
 
   const zip = new AdmZip();
 
