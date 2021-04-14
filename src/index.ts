@@ -7,12 +7,15 @@ import { getImages, getMovies } from "./utils";
 import * as S3 from "aws-sdk/clients/s3";
 import * as DynamoDB from "aws-sdk/clients/dynamodb";
 import { uuid } from "uuidv4";
+import * as dotenv from "dotenv";
+
+dotenv.config();
 
 const client = new Twitter({
-  consumer_key: "ELcHBKkYF2Ui7wXibvaKg3Yxc",
-  consumer_secret: "6NwK7fXLhw25xQ6WAZQmW8tOXYyDggcDIEUfcPNDPU8JS5VEnt",
-  access_token_key: "1108739604553691137-QWynCEVMxSg5te0FOapICCYPVdg9jE",
-  access_token_secret: "uJkectqOGrpV5caTsvmp6h1iU0pX9hBIU5q8X7nQHYBN1",
+  consumer_key: process.env.CONSUMER_KEY,
+  consumer_secret: process.env.CONSUMER_SECRET,
+  access_token_key: process.env.ACCESS_TOKEN_KEY,
+  access_token_secret: process.env.ACCESS_TOKEN_SECRET,
 });
 const S3_BUCKET_NAME = "twi-image-downloader-contents";
 
@@ -178,6 +181,7 @@ export const handler = async (event) => {
         Body: fs.readFileSync("/tmp/contents.zip"),
       })
       .promise();
+
     const url = await getPresignedUrl(fileKey);
 
     return {
