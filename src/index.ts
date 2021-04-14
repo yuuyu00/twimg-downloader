@@ -2,7 +2,7 @@
 import * as Twitter from "twitter";
 import * as fs from "fs";
 import * as AdmZip from "adm-zip";
-import { Media } from "./types";
+import { Media, Tweet } from "./types";
 import { getImages, getMovies } from "./utils";
 import * as S3 from "aws-sdk/clients/s3";
 import * as DynamoDB from "aws-sdk/clients/dynamodb";
@@ -15,42 +15,6 @@ const client = new Twitter({
   access_token_secret: "uJkectqOGrpV5caTsvmp6h1iU0pX9hBIU5q8X7nQHYBN1",
 });
 const S3_BUCKET_NAME = "twi-image-downloader-contents";
-
-type Tweet = {
-  id: number;
-  id_str: string;
-  full_text: string;
-  entities: {
-    media?: [
-      {
-        id: number;
-        id_str: string;
-        media_url: string;
-        media_url_https: string;
-      }
-    ];
-  };
-  extended_entities?: {
-    media: [
-      {
-        id: number;
-        id_str: string;
-        media_url_https: string;
-        video_info: {
-          aspect_ratio: number[];
-          duration_millis: number;
-          variants: [
-            {
-              bitrate?: number;
-              content_type: string;
-              url: string;
-            }
-          ];
-        };
-      }
-    ];
-  };
-};
 
 const getMedias = async (
   userName: string,
@@ -72,72 +36,77 @@ const getMedias = async (
         trim_user: true,
         count: 200,
       };
-  const tweets = (await client.get(
-    "statuses/user_timeline.json",
-    options
-  )) as Tweet[];
 
-  const movieList = tweets
-    .filter((tweet) => !/RT /.test(tweet.full_text))
-    .map((tweet) => {
-      if (
-        !tweet.extended_entities ||
-        !tweet.extended_entities.media[0] ||
-        !tweet.extended_entities.media[0].video_info
-      )
-        return;
+  try {
+    const tweets = (await client.get(
+      "statuses/user_timeline.json",
+      options
+    )) as Tweet[];
 
-      const url = tweet.extended_entities.media[0].video_info.variants
-        .reduce(
-          (variant, cur) => {
-            if (!("bitrate" in cur)) return variant;
-
-            return cur.bitrate > variant.bitrate ? cur : variant;
-          },
-          { bitrate: 0, content_type: "", url: "" }
+    const movieList = tweets
+      .filter((tweet) => !/RT /.test(tweet.full_text))
+      .map((tweet) => {
+        if (
+          !tweet.extended_entities ||
+          !tweet.extended_entities.media[0] ||
+          !tweet.extended_entities.media[0].video_info
         )
-        .url.replace(/\?tag=.*/, "");
+          return;
 
-      return {
-        title: tweet.full_text
-          .replace(/\r?\n/g, "")
-          .replace(/https:\/\/t.co\/.*/, ""),
-        url,
-      };
-    })
-    .filter((item) => item !== undefined && item.url !== "");
+        const url = tweet.extended_entities.media[0].video_info.variants
+          .reduce(
+            (variant, cur) => {
+              if (!("bitrate" in cur)) return variant;
 
-  const imageList = tweets
-    .filter((tweet) => !/RT /.test(tweet.full_text))
-    .reduce((list, tweet) => {
-      if (!tweet.extended_entities || !tweet.extended_entities.media)
-        return list;
-      if (tweet.extended_entities.media[0].video_info) return list;
+              return cur.bitrate > variant.bitrate ? cur : variant;
+            },
+            { bitrate: 0, content_type: "", url: "" }
+          )
+          .url.replace(/\?tag=.*/, "");
 
-      return [
-        ...list,
-        ...tweet.extended_entities.media.map((m) => ({
+        return {
           title: tweet.full_text
-            .replace(/\r?\n/g, " ")
+            .replace(/\r?\n/g, "")
             .replace(/https:\/\/t.co\/.*/, ""),
-          url: m.media_url_https,
-        })),
-      ];
-    }, [] as Media[]);
+          url,
+        };
+      })
+      .filter((item) => item !== undefined && item.url !== "");
 
-  if (tweets.length < 100) {
-    return {
-      movieList: [...argMovieList, ...movieList],
-      imageList: [...argImageList, ...imageList],
-    };
+    const imageList = tweets
+      .filter((tweet) => !/RT /.test(tweet.full_text))
+      .reduce((list, tweet) => {
+        if (!tweet.extended_entities || !tweet.extended_entities.media)
+          return list;
+        if (tweet.extended_entities.media[0].video_info) return list;
+
+        return [
+          ...list,
+          ...tweet.extended_entities.media.map((m) => ({
+            title: tweet.full_text
+              .replace(/\r?\n/g, " ")
+              .replace(/https:\/\/t.co\/.*/, ""),
+            url: m.media_url_https,
+          })),
+        ];
+      }, [] as Media[]);
+
+    if (tweets.length < 100) {
+      return {
+        movieList: [...argMovieList, ...movieList],
+        imageList: [...argImageList, ...imageList],
+      };
+    }
+
+    return getMedias(
+      userName,
+      [...argImageList, ...imageList],
+      [...argMovieList, ...movieList],
+      tweets.slice(-1)[0].id
+    );
+  } catch (e) {
+    throw new Error(e);
   }
-
-  return getMedias(
-    userName,
-    [...argImageList, ...imageList],
-    [...argMovieList, ...movieList],
-    tweets.slice(-1)[0].id
-  );
 };
 
 const getPresignedUrl = async (key: string): Promise<string> => {
@@ -191,38 +160,34 @@ export const handler = async (event) => {
 
   const zip = new AdmZip();
 
-  const { imageList, movieList } = await getMedias(userName);
-  const imageDataList = await getImages(imageList);
-  const moviePathList = await getMovies(movieList);
+  try {
+    const { imageList, movieList } = await getMedias(userName);
+    const imageDataList = await getImages(imageList);
+    const moviePathList = await getMovies(movieList);
 
-  imageDataList.map((data, index) => zip.addFile(`/img_${index}.jpg`, data));
-  moviePathList.map((path) => zip.addLocalFile(path));
+    imageDataList.map((data, index) => zip.addFile(`/img_${index}.jpg`, data));
+    moviePathList.map((path) => zip.addLocalFile(path));
 
-  zip.writeZip("/tmp/contents.zip");
+    zip.writeZip("/tmp/contents.zip");
 
-  const fileKey = `${userName}_${new Date().toISOString()}.zip`;
-  await s3
-    .putObject({
-      Bucket: S3_BUCKET_NAME,
-      Key: fileKey,
-      Body: fs.readFileSync("/tmp/contents.zip"),
-    })
-    .promise();
-  const url = await getPresignedUrl(fileKey);
+    const fileKey = `${userName}_${new Date().toISOString()}.zip`;
+    await s3
+      .putObject({
+        Bucket: S3_BUCKET_NAME,
+        Key: fileKey,
+        Body: fs.readFileSync("/tmp/contents.zip"),
+      })
+      .promise();
+    const url = await getPresignedUrl(fileKey);
 
-  return {
-    status: 200,
-    body: { url },
-  };
+    return {
+      status: 200,
+      body: { url },
+    };
+  } catch (e) {
+    return {
+      status: 500,
+      body: JSON.stringify(e),
+    };
+  }
 };
-
-// const main = async () => {
-//   const userName = process.argv[2];
-//   if (!userName) throw new Error("userName is required");
-
-//   const { imageList, movieList } = await getMedias(userName);
-//   console.log(imageList);
-//   getImages(imageList);
-// };
-
-// main();
